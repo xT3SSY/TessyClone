@@ -13,8 +13,9 @@
        - Microsoft.WindowsADK (solo OptionId.DeploymentTools)
        - Microsoft.WindowsADK.WinPEAddon (solo OptionId.WindowsPreinstallationEnvironment)
     3. Clona o aggiorna il repository in $env:USERPROFILE\Documents\TessyClone.
-    4. Controlla la presenza di driver nella cartella .\Drivers\ (avvisando se vuota).
-    5. Compila TessyClone (.NET 8), prepara ISO_Root WinPE tramite copype.cmd e lancia Build-TessyClone-ISO.ps1.
+    4. Compila TessyClone (.NET 8) e prepara ISO_Root WinPE tramite copype.cmd.
+    5. Se .\Drivers\ non contiene file .inf, scarica ed estrae automaticamente i driver Intel RST/VMD (SetupRST.exe).
+    6. Lancia Build-TessyClone-ISO.ps1 per generare la ISO finale.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -195,29 +196,10 @@ if (Test-Path (Join-Path $repoDir ".git")) {
 }
 Write-Host "  [OK] Repository pronto in: $repoDir" -ForegroundColor Green
 
-# 4. Controllo cartella .\Drivers\
-Write-Host "`n[3/5] Controllo cartella driver di archiviazione..." -ForegroundColor Yellow
-$driversDir = Join-Path $repoDir "Drivers"
-if (-not (Test-Path $driversDir)) {
-    New-Item -ItemType Directory -Path $driversDir -Force | Out-Null
-}
-
-$driverFiles = Get-ChildItem -Path $driversDir -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -ne "README.md" }
-$infFiles = $driverFiles | Where-Object { $_.Extension -ieq ".inf" }
-
-if ($driverFiles.Count -eq 0 -or $infFiles.Count -eq 0) {
-    Write-Host "  [ATTENZIONE] La cartella '$driversDir' è vuota (nessun file .inf trovato)." -ForegroundColor Yellow
-    Write-Host "  La ISO verrà generata senza driver aggiuntivi Intel RST/VMD (iaStorVD, iaStorAC, iaAHCIC)." -ForegroundColor Yellow
-    Write-Host "  Se devi clonare PC con controller Intel VMD/RAID attivi, copia i driver estratti in '$driversDir' e rilancia Build-TessyClone-ISO.ps1." -ForegroundColor Yellow
-} else {
-    Write-Host "  [OK] Trovati $($infFiles.Count) file .inf in $driversDir." -ForegroundColor Green
-}
-
-# 5. Compilazione .NET 8, preparazione base WinPE (ISO_Root) e avvio Build-TessyClone-ISO.ps1
+# 4. Compilazione .NET 8, preparazione base WinPE, driver Intel RST/VMD e avvio Build-TessyClone-ISO.ps1
 Push-Location $repoDir
 try {
-    Write-Host "`n[4/5] Compilazione applicazione TessyClone (.NET 8 win-x64)..." -ForegroundColor Yellow
+    Write-Host "`n[3/5] Compilazione applicazione TessyClone (.NET 8 win-x64)..." -ForegroundColor Yellow
     $csprojPath = Join-Path $repoDir "WinPE_CloneApp\WinPECloner\WinPECloner.csproj"
     $publishDir = Join-Path $repoDir "WinPE_CloneApp\publish"
     & $dotnetExe publish $csprojPath -c Release -r win-x64 -o $publishDir
@@ -233,7 +215,7 @@ try {
     $efisys     = Join-Path $isoRootDir "boot\efisys.bin"
 
     if (-not (Test-Path $bootWim) -or -not (Test-Path $etfsboot) -or -not (Test-Path $efisys)) {
-        Write-Host "`n[4b/5] Inizializzazione immagine base WinPE tramite ADK (copype amd64)..." -ForegroundColor Yellow
+        Write-Host "`n[3b/5] Inizializzazione immagine base WinPE tramite ADK (copype amd64)..." -ForegroundColor Yellow
         $adkRoot = Find-AdkRoot
         if (-not $adkRoot) {
             throw "Windows ADK non trovato dopo l'installazione."
@@ -267,6 +249,51 @@ try {
         Copy-Item -Path (Join-Path $copypeStage "fwfiles\efisys.bin") -Destination (Join-Path $isoRootDir "boot\efisys.bin") -Force
         Remove-Item -Path $copypeStage -Recurse -Force -ErrorAction SilentlyContinue
         Write-Host "  [OK] Struttura base WinPE pronta in $isoRootDir." -ForegroundColor Green
+    }
+
+    # Scaricamento ed estrazione automatica driver Intel RST/VMD se .\Drivers\ non contiene file .inf
+    Write-Host "`n[4/5] Verifica driver Intel RST/VMD in .\Drivers\..." -ForegroundColor Yellow
+    $driversDir = Join-Path $PWD "Drivers"
+    if (-not (Test-Path $driversDir)) {
+        New-Item -ItemType Directory -Path $driversDir -Force | Out-Null
+    }
+
+    $infFiles = Get-ChildItem -Path $driversDir -Filter "*.inf" -Recurse -File -ErrorAction SilentlyContinue
+    if ($infFiles.Count -eq 0) {
+        $rstUrl = "https://downloadmirror.intel.com/872385/SetupRST.exe"
+        $setupRstPath = Join-Path $env:TEMP "SetupRST.exe"
+
+        try {
+            Write-Host "  -> Nessun file .inf trovato. Scaricamento automatico Intel RST/VMD ($rstUrl)..." -ForegroundColor Cyan
+            if (Get-Command "curl.exe" -ErrorAction SilentlyContinue) {
+                & curl.exe -fL -A "Mozilla/5.0" -o "$setupRstPath" "$rstUrl"
+                if ($LASTEXITCODE -ne 0) {
+                    throw "curl.exe ha restituito codice di uscita $LASTEXITCODE durante il download di SetupRST.exe."
+                }
+            } else {
+                Invoke-WebRequest -Uri $rstUrl -OutFile $setupRstPath -Headers @{ "User-Agent" = "Mozilla/5.0" } -UseBasicParsing
+            }
+
+            if (-not (Test-Path $setupRstPath) -or (Get-Item $setupRstPath).Length -le 0) {
+                throw "Download di SetupRST.exe non riuscito o file vuoto."
+            }
+
+            Write-Host "  -> Estrazione driver Intel RST/VMD in $driversDir..." -ForegroundColor Cyan
+            $proc = Start-Process -FilePath "$env:TEMP\SetupRST.exe" -ArgumentList "-extractdrivers `"$PWD\Drivers`"" -Wait -NoNewWindow -PassThru
+            if ($proc.ExitCode -ne 0) {
+                throw "Estrazione driver con SetupRST.exe fallita (Exit code: $($proc.ExitCode))."
+            }
+
+            $extractedInf = Get-ChildItem -Path $driversDir -Filter "*.inf" -Recurse -File -ErrorAction SilentlyContinue
+            Write-Host "  [OK] Estratti $($extractedInf.Count) file .inf in $driversDir." -ForegroundColor Green
+        }
+        finally {
+            if (Test-Path $setupRstPath) {
+                Remove-Item -Path $setupRstPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } else {
+        Write-Host "  [OK] Trovati $($infFiles.Count) file .inf già presenti in $driversDir." -ForegroundColor Green
     }
 
     Write-Host "`n[5/5] Avvio Build-TessyClone-ISO.ps1..." -ForegroundColor Yellow
