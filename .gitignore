@@ -1,0 +1,29 @@
+# Compilazione .NET
+bin/
+obj/
+publish/
+*.exe
+*.dll
+*.pdb
+
+# Immagini WinPE, ISO e cartelle/file di lavoro temporanei
+*.iso
+*.wim
+*.esd
+mount/
+winpe_mount/
+winpe_work/
+WinPE_Build_Work/
+RE_MiniTool/
+wim_cmds.txt
+wim_commands.txt
+test_bcd.LOG*
+
+# Driver proprietari
+Drivers/*
+!Drivers/README.md
+
+# File IDE / OS
+.vs/
+.vscode/
+Thumbs.db
