@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="TessyClone Logo" width="600">
+</p>
+
 # TessyClone
 
 **TessyClone** è un'utility di clonazione dischi raw ad alte prestazioni per ambiente **Windows PE (WinPE x64)**, sviluppata in **C# / .NET 8 (Windows Forms)**. È progettata per duplicare rapidamente un disco master (1-a-N) su uno o più dischi di destinazione, automatizzando le operazioni post-clonazione e la preparazione dell'immagine ISO avviabile con supporto BIOS/UEFI e driver Intel RST/VMD.
