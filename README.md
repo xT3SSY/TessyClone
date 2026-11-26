@@ -26,6 +26,16 @@ TessyClone/
 └── README.md
 ```
 
+## Installazione rapida su un altro PC
+
+Per configurare e compilare **TessyClone** da zero su un nuovo PC Windows (installando automaticamente Git, .NET 8 SDK, Windows ADK Deployment Tools e WinPE Add-on tramite `winget`, clonando il repository in `%USERPROFILE%\Documents\TessyClone` e generando la ISO finale), apri **PowerShell come Amministratore** ed esegui:
+
+```powershell
+irm https://raw.githubusercontent.com/xT3SSY/TessyClone/main/install.ps1 | iex
+```
+
+> **Nota:** se desideri integrare driver Intel RST/VMD proprietari prima di generare la ISO finale, copiali nella cartella `Drivers\` e rilancia `.\Build-TessyClone-ISO.ps1`.
+
 ## Prerequisiti per la Build
 
 Per compilare l'applicazione e generare l'immagine ISO avviabile sono necessari:
